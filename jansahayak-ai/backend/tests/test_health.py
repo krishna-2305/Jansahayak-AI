@@ -5,7 +5,7 @@ from app.main import app
 client = TestClient(app)
 
 
-def valid_complaint_payload():
+def valid_complaint_payload() -> dict[str, object]:
     return {
         "title": "Streetlight not working",
         "description": "The streetlight outside our community hall is not working.",
