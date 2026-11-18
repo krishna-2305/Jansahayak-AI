@@ -8,7 +8,29 @@ from app.database import Base, engine
 
 load_dotenv()
 
+# Register model metadata before creating tables.
+from app.models import complaint, department, incident, status_history  # noqa: F401, E402
+
 Base.metadata.create_all(bind=engine)
+
+# Add useful starter departments; existing records are never duplicated.
+from app.database import SessionLocal  # noqa: E402
+from app.models.department import Department  # noqa: E402
+
+starter_departments = [
+    ("Public Works", "Roads, drainage, and public infrastructure"),
+    ("Health", "Public health and medical services"),
+    ("Education", "Schools and educational administration"),
+    ("Transport", "Road transport and public transit"),
+    ("Sanitation", "Waste collection and cleanliness"),
+    ("Revenue", "Land records and revenue administration"),
+]
+
+with SessionLocal() as startup_db:
+    for name, description in starter_departments:
+        if startup_db.query(Department).filter(Department.name == name).first() is None:
+            startup_db.add(Department(name=name, description=description))
+    startup_db.commit()
 
 app = FastAPI(title=os.getenv("APP_NAME", "JanSahayak AI"))
 
@@ -24,6 +46,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+from app.routers.complaints import router as complaints_router  # noqa: E402
+from app.routers.departments import router as departments_router  # noqa: E402
+from app.routers.dashboard import router as dashboard_router  # noqa: E402
+
+app.include_router(complaints_router)
+app.include_router(departments_router)
+app.include_router(dashboard_router)
 
 
 @app.get("/api/health")

@@ -118,6 +118,18 @@ npm run dev
 
 Open `http://localhost:5173`. The initial page performs a request to `/api/health` using the configured `VITE_API_URL`.
 
+## API Endpoints
+
+- `POST /api/complaints` — register a complaint
+- `GET /api/complaints/{reference_id}` — retrieve a complaint by reference ID
+- `GET /api/complaints` — list complaints
+- `PATCH /api/complaints/{id}/status` — update complaint status
+- `GET /api/departments` — list departments
+- `GET /api/dashboard/summary` — summarize complaint totals by status and priority
+- `GET /api/health` — backend health check
+
+Swagger documentation is available at `http://localhost:8000/docs`.
+
 ## Run Backend Tests
 
 ```bash
