@@ -1,13 +1,12 @@
 # JanSahayak AI
 
-JanSahayak AI is a public grievance intelligence and incident coordination system designed for a fast, reliable hackathon build. It combines a React frontend with a FastAPI backend and optional future AI services.
+JanSahayak AI is a public grievance intelligence and incident coordination system. This repository contains a React/Vite frontend and a FastAPI/SQLite backend.
 
 ## Technology Stack
 
-- Frontend: React, Vite, JavaScript, Tailwind CSS, Lucide React, Recharts, Axios, React Router DOM
+- Frontend: React, Vite, JavaScript, Tailwind CSS v4, React Router, Axios
 - Backend: Python, FastAPI, Uvicorn, SQLAlchemy, SQLite, Pydantic, python-dotenv
-- AI: Scikit-learn, NumPy, Pandas; Sentence Transformers and Ollama are optional
-- Development: Git, GitHub, Postman
+- Testing: pytest and FastAPI TestClient
 
 ## Project Structure
 
@@ -15,22 +14,23 @@ JanSahayak AI is a public grievance intelligence and incident coordination syste
 jansahayak-ai/
 ├── frontend/
 │   ├── src/
-│   │   ├── components/  # Developer 3: reusable UI
-│   │   ├── pages/        # Developer 3: routed screens
-│   │   ├── layouts/      # Developer 3: shared layouts
-│   │   ├── services/     # Developer 3: centralized API client
+│   │   ├── components/
 │   │   ├── hooks/
-│   │   └── assets/
+│   │   ├── layouts/
+│   │   ├── pages/
+│   │   └── services/
+│   ├── .env.example
 │   └── package.json
 ├── backend/
 │   ├── app/
-│   │   ├── routers/      # Developer 2: API routes
-│   │   ├── models/       # Developer 2: SQLAlchemy models
-│   │   ├── schemas/      # Developer 2: Pydantic schemas
-│   │   ├── services/     # Developer 1: AI and domain services
+│   │   ├── models/
+│   │   ├── routers/
+│   │   ├── schemas/
+│   │   ├── services/
 │   │   ├── database.py
 │   │   └── main.py
 │   ├── tests/
+│   ├── .env.example
 │   └── requirements.txt
 ├── .gitignore
 └── README.md
@@ -38,16 +38,16 @@ jansahayak-ai/
 
 ## Prerequisites
 
+- Python 3.11 or newer
 - Node.js 20 or newer
 - npm 10 or newer
-- Python 3.11 or newer
 
-## Installation
+Run the following commands from the `jansahayak-ai` project directory.
 
-### 1. Backend
+## Backend Setup
 
 ```bash
-cd jansahayak-ai/backend
+cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -55,17 +55,7 @@ python -m pip install -r requirements.txt
 cp .env.example .env
 ```
 
-### 2. Frontend
-
-```bash
-cd jansahayak-ai/frontend
-npm install
-cp .env.example .env
-```
-
-## Environment Variables
-
-Backend defaults are suitable for local development. Optionally copy `backend/.env.example` to `backend/.env`:
+The backend `.env` supports:
 
 ```env
 APP_NAME=JanSahayak AI
@@ -74,21 +64,35 @@ DATABASE_URL=sqlite:///./jansahayak.db
 CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 ```
 
-Frontend uses `frontend/.env`:
+SQLite and SQLAlchemy initialize automatically. The default database file is `backend/jansahayak.db` when commands are run from the backend directory. No application data models are required for the initial setup.
+
+## Frontend Setup
+
+Open a second terminal in `jansahayak-ai`:
+
+```bash
+cd frontend
+npm install
+cp .env.example .env
+```
+
+The frontend `.env` supports:
 
 ```env
 VITE_API_URL=http://localhost:8000
 ```
 
-Never commit `.env` or real API keys.
+Vite exposes this variable through `import.meta.env.VITE_API_URL`. Restart the Vite development server after changing `.env`.
 
-## Start the Backend
+## Run the Backend
 
 ```bash
-cd jansahayak-ai/backend
+cd backend
 source .venv/bin/activate
 python run.py
 ```
+
+The backend runs at `http://localhost:8000`. Interactive documentation is available at `http://localhost:8000/docs`.
 
 Health check:
 
@@ -105,29 +109,38 @@ Expected response:
 }
 ```
 
-Interactive API documentation is available at `http://localhost:8000/docs`.
-
-## Start the Frontend
+## Run the Frontend
 
 ```bash
-cd jansahayak-ai/frontend
+cd frontend
 npm run dev
 ```
 
-Open `http://localhost:5173`. The initial page checks backend connectivity.
+Open `http://localhost:5173`. The initial page performs a request to `/api/health` using the configured `VITE_API_URL`.
 
-## Run Tests
+## Run Backend Tests
 
 ```bash
-cd jansahayak-ai/backend
+cd backend
 source .venv/bin/activate
-pytest -q
+python -m pytest -q
 ```
+
+## Build the Frontend
+
+```bash
+cd frontend
+npm run build
+```
+
+## Security
+
+Never commit `.env` files or secrets. Only the `.env.example` templates should be committed. `.venv`, `node_modules`, SQLite database files, build output, and test/cache directories are excluded by `.gitignore`.
 
 ## Team Ownership
 
 - Developer 1 — AI/ML: `backend/app/services/`
-- Developer 2 — Backend: `backend/app/routers/`, `models/`, `schemas/`, `database.py`, `main.py`
-- Developer 3 — Frontend: `frontend/src/components/`, `pages/`, `layouts/`, `services/`
+- Developer 2 — Backend: `backend/app/routers/`, `backend/app/models/`, `backend/app/schemas/`, `backend/app/database.py`, `backend/app/main.py`
+- Developer 3 — Frontend: `frontend/src/components/`, `frontend/src/pages/`, `frontend/src/layouts/`, `frontend/src/services/`
 
-The service folders are intentionally independent to reduce merge conflicts. AI models are not downloaded during setup and optional integrations remain disabled until explicitly configured.
+The optional AI integrations remain disabled; no models are downloaded during setup.
