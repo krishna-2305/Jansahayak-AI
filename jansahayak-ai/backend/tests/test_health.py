@@ -90,3 +90,164 @@ def test_departments_and_dashboard_summary():
     summary = client.get("/api/dashboard/summary")
     assert summary.status_code == 200
     assert "total_complaints" in summary.json()
+
+
+def test_ai_analysis_is_explainable_and_preserves_text():
+    payload = valid_complaint_payload()
+    payload.update({
+        "title": "Live wire hanging near the school",
+        "description": "A live wire is hanging dangerously beside the school gate and may cause electrocution.",
+        "category": "Other Civic Issues",
+        "priority": "Medium",
+    })
+    created = client.post("/api/complaints", json=payload)
+    assert created.status_code == 201
+
+    complaint = created.json()
+    assert complaint["title"] == payload["title"]
+    assert complaint["description"] == payload["description"]
+
+    response = client.get(f"/api/complaints/{complaint['reference_id']}/ai-analysis")
+    assert response.status_code == 200
+    analysis = response.json()["analysis"]
+    assert analysis["recommended_category"] == "School & Education Facilities"
+    assert analysis["recommended_department"] == "Education"
+    assert analysis["recommended_priority"] == "Critical"
+    assert analysis["category_evidence"]
+    assert analysis["priority_rationale"]
+
+
+def test_ai_analysis_returns_no_external_dependency_result():
+    payload = valid_complaint_payload()
+    created = client.post("/api/complaints", json=payload).json()
+
+    response = client.get(f"/api/complaints/{created['reference_id']}/ai-analysis")
+    assert response.status_code == 200
+    assert "analysis" in response.json()
+    assert "similar_complaints" in response.json()
+
+
+def test_status_remark_is_persisted_in_timeline():
+    created = client.post("/api/complaints", json=valid_complaint_payload()).json()
+    remarks = "Road repair squad dispatched; inspection is scheduled."
+
+    update = client.patch(
+        f"/api/complaints/{created['id']}/status",
+        json={"status": "In Progress", "remarks": remarks},
+    )
+    assert update.status_code == 200
+
+    retrieve = client.get(f"/api/complaints/{created['reference_id']}")
+    assert retrieve.status_code == 200
+    history = retrieve.json()["status_history"]
+    assert any(entry["status"] == "In Progress" and entry["remarks"] == remarks for entry in history)
+
+
+def test_complaint_text_is_normalized_and_priority_is_validated():
+    payload = valid_complaint_payload()
+    payload.update({
+        "title": "  Broken   streetlight  ",
+        "description": "  The   streetlight is not working outside the hall.  ",
+        "district": "  Bhopal  ",
+        "locality": "  Arera   Colony  ",
+        "priority": "high",
+    })
+
+    created = client.post("/api/complaints", json=payload)
+    assert created.status_code == 201
+    complaint = created.json()
+    assert complaint["title"] == "Broken streetlight"
+    assert complaint["description"] == "The streetlight is not working outside the hall."
+    assert complaint["district"] == "Bhopal"
+    assert complaint["locality"] == "Arera Colony"
+    assert complaint["priority"] == "High"
+
+    invalid = dict(payload)
+    invalid["priority"] = "Urgent"
+    assert client.post("/api/complaints", json=invalid).status_code == 422
+
+
+def test_reference_ids_are_unique_across_registered_complaints():
+    first = client.post("/api/complaints", json=valid_complaint_payload()).json()
+    second = client.post("/api/complaints", json=valid_complaint_payload()).json()
+
+    assert first["reference_id"] != second["reference_id"]
+    assert len(first["reference_id"]) == 11
+    assert len(second["reference_id"]) == 11
+
+
+def test_complaint_listing_supports_search_and_filters():
+    department = client.get("/api/departments").json()[0]
+    payload = valid_complaint_payload()
+    payload.update({
+        "district": "Gwalior",
+        "locality": "City Center",
+        "category": "Traffic Signal",
+        "priority": "Critical",
+        "department_id": department["id"],
+    })
+    created = client.post("/api/complaints", json=payload).json()
+
+    response = client.get(
+        "/api/complaints",
+        params={
+            "search": created["reference_id"],
+            "category": "Traffic",
+            "department_id": department["id"],
+            "priority": "Critical",
+            "status": "Submitted",
+            "locality": "City",
+            "skip": 0,
+            "limit": 10,
+        },
+    )
+    assert response.status_code == 200
+    items = response.json()
+    assert any(item["id"] == created["id"] for item in items)
+
+
+def test_complaint_listing_rejects_invalid_filters_and_supports_pagination():
+    assert client.get("/api/complaints", params={"priority": "Urgent"}).status_code == 422
+    assert client.get("/api/complaints", params={"status": "Unknown"}).status_code == 422
+
+    first_page = client.get("/api/complaints", params={"skip": 0, "limit": 1})
+    assert first_page.status_code == 200
+    assert len(first_page.json()) <= 1
+
+
+def test_status_history_rejects_no_op_status_update():
+    created = client.post("/api/complaints", json=valid_complaint_payload()).json()
+
+    response = client.patch(
+        f"/api/complaints/{created['id']}/status",
+        json={"status": "Submitted", "remarks": "No change"},
+    )
+    assert response.status_code == 409
+
+
+def test_status_update_missing_complaint_is_reported():
+    response = client.patch("/api/complaints/999999/status", json={"status": "Resolved"})
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Complaint not found"
+
+
+def test_dashboard_summary_includes_category_and_department_breakdowns():
+    department = client.get("/api/departments").json()[0]
+    payload = valid_complaint_payload()
+    payload.update({
+        "category": "Road Maintenance",
+        "priority": "High",
+        "department_id": department["id"],
+    })
+    client.post("/api/complaints", json=payload)
+
+    response = client.get("/api/dashboard/summary")
+    assert response.status_code == 200
+    summary = response.json()
+    assert "total_complaints" in summary
+    assert "by_status" in summary
+    assert "by_priority" in summary
+    assert "by_category" in summary
+    assert "by_department" in summary
+    assert summary["by_category"].get("Road Maintenance", 0) >= 1
+    assert summary["by_department"].get(department["name"], 0) >= 1

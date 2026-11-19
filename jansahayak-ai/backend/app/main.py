@@ -13,6 +13,13 @@ from app.models import complaint, department, incident, status_history  # noqa: 
 
 Base.metadata.create_all(bind=engine)
 
+# Lightweight SQLite compatibility for databases created before officer remarks existed.
+if str(engine.url).startswith("sqlite"):
+    with engine.begin() as connection:
+        columns = connection.exec_driver_sql("PRAGMA table_info(status_history)").all()
+        if columns and not any(row[1] == "remarks" for row in columns):
+            connection.exec_driver_sql("ALTER TABLE status_history ADD COLUMN remarks TEXT")
+
 # Add useful starter departments; existing records are never duplicated.
 from app.database import SessionLocal  # noqa: E402
 from app.models.department import Department  # noqa: E402

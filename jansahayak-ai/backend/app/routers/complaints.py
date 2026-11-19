@@ -1,66 +1,111 @@
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import or_, func
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.complaint import Complaint
+from app.models.department import Department
 from app.models.status_history import StatusHistory
 from app.schemas.complaint import ComplaintCreate, ComplaintResponse, ComplaintUpdate
+from app.services.ai_engine import AIEngine
+from app.services.similarity_service import find_similar
 
 router = APIRouter(prefix="/api/complaints", tags=["Complaints"])
 
 ALLOWED_STATUSES = {"Submitted", "Under Review", "In Progress", "Resolved", "Closed", "Rejected"}
 
 
-def generate_reference_id(db: Session) -> str:
-    import uuid
-
-    while True:
+def generate_reference_id(db: Session, max_attempts: int = 20) -> str:
+    for _ in range(max_attempts):
         reference_id = f"JS-{uuid.uuid4().hex[:8].upper()}"
-        if db.query(Complaint).filter(Complaint.reference_id == reference_id).first() is None:
+        exists = db.query(Complaint.id).filter(Complaint.reference_id == reference_id).first()
+        if exists is None:
             return reference_id
+    raise HTTPException(status_code=503, detail="Unable to generate a unique complaint reference ID")
 
 
 @router.post("", response_model=ComplaintResponse, status_code=status.HTTP_201_CREATED)
 def create_complaint(payload: ComplaintCreate, db: Session = Depends(get_db)):
     if payload.department_id is not None:
-        from app.models.department import Department
-
         department = db.query(Department).filter(Department.id == payload.department_id).first()
         if department is None:
             raise HTTPException(status_code=404, detail="Department not found")
 
     complaint = Complaint(
         reference_id=generate_reference_id(db),
-        title=payload.title.strip(),
-        description=payload.description.strip(),
-        language=payload.language.strip(),
-        district=payload.district.strip(),
-        locality=payload.locality.strip(),
-        category=payload.category.strip(),
-        priority=payload.priority.strip(),
+        title=payload.title,
+        description=payload.description,
+        language=payload.language,
+        district=payload.district,
+        locality=payload.locality,
+        category=payload.category,
+        priority=payload.priority,
         department_id=payload.department_id,
+        status="Submitted",
     )
 
-    db.add(complaint)
-    db.flush()
-    db.add(StatusHistory(complaint_id=complaint.id, status=complaint.status))
-    db.commit()
-    db.refresh(complaint)
-    return complaint
+    try:
+        db.add(complaint)
+        db.flush()
+        db.add(StatusHistory(complaint_id=complaint.id, status="Submitted", remarks="Complaint registered"))
+        db.commit()
+        db.refresh(complaint)
+        return complaint
+    except IntegrityError as exc:
+        db.rollback()
+        if "reference_id" in str(exc.orig).lower():
+            raise HTTPException(status_code=409, detail="Reference ID collision; please retry") from exc
+        raise HTTPException(status_code=409, detail="Complaint conflicts with existing data") from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Database error while registering complaint") from exc
 
 
 @router.get("", response_model=list[ComplaintResponse])
 def list_complaints(
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
+    search: str | None = Query(default=None, max_length=30, description="Search by reference ID"),
+    category: str | None = Query(default=None, max_length=100),
+    department_id: int | None = Query(default=None, gt=0),
+    priority: str | None = Query(default=None, max_length=20),
+    complaint_status: str | None = Query(default=None, alias="status", max_length=30),
+    locality: str | None = Query(default=None, max_length=200),
     db: Session = Depends(get_db),
 ):
-    return db.query(Complaint).order_by(Complaint.created_at.desc()).offset(skip).limit(limit).all()
+    query = db.query(Complaint)
+
+    if search:
+        query = query.filter(func.upper(Complaint.reference_id).contains(search.strip().upper()))
+    if category:
+        query = query.filter(func.lower(Complaint.category).contains(category.strip().lower()))
+    if department_id is not None:
+        query = query.filter(Complaint.department_id == department_id)
+    if priority:
+        normalized_priority = priority.strip().title()
+        if normalized_priority not in {"Low", "Medium", "High", "Critical"}:
+            raise HTTPException(status_code=422, detail="Invalid priority filter")
+        query = query.filter(Complaint.priority == normalized_priority)
+    if complaint_status:
+        normalized_status = complaint_status.strip().title()
+        if normalized_status not in ALLOWED_STATUSES:
+            raise HTTPException(status_code=422, detail="Invalid status filter")
+        query = query.filter(Complaint.status == normalized_status)
+    if locality:
+        query = query.filter(func.lower(Complaint.locality).contains(locality.strip().lower()))
+
+    try:
+        return query.order_by(Complaint.created_at.desc(), Complaint.id.desc()).offset(skip).limit(limit).all()
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail="Database error while listing complaints") from exc
 
 
 @router.get("/{reference_id}", response_model=ComplaintResponse)
 def get_complaint(reference_id: str, db: Session = Depends(get_db)):
-    complaint = db.query(Complaint).filter(Complaint.reference_id == reference_id.upper()).first()
+    complaint = db.query(Complaint).filter(Complaint.reference_id == reference_id.strip().upper()).first()
     if complaint is None:
         raise HTTPException(status_code=404, detail="Complaint not found")
     return complaint
@@ -76,15 +121,35 @@ def update_complaint_status(
     if complaint is None:
         raise HTTPException(status_code=404, detail="Complaint not found")
 
-    new_status = payload.status.strip().title()
-    if new_status not in ALLOWED_STATUSES:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Invalid status. Allowed statuses: {', '.join(sorted(ALLOWED_STATUSES))}",
-        )
+    new_status = payload.status
+    if complaint.status == new_status:
+        raise HTTPException(status_code=409, detail=f"Complaint is already {new_status}")
 
-    complaint.status = new_status
-    db.add(StatusHistory(complaint_id=complaint.id, status=new_status))
-    db.commit()
-    db.refresh(complaint)
-    return complaint
+    try:
+        complaint.status = new_status
+        db.add(StatusHistory(
+            complaint_id=complaint.id,
+            status=new_status,
+            remarks=payload.remarks,
+        ))
+        db.commit()
+        db.refresh(complaint)
+        return complaint
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Database error while updating complaint status") from exc
+
+
+@router.get("/{reference_id}/ai-analysis")
+def get_complaint_ai_analysis(reference_id: str, db: Session = Depends(get_db)):
+    complaint = db.query(Complaint).filter(Complaint.reference_id == reference_id.strip().upper()).first()
+    if complaint is None:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    analysis = AIEngine().analyze(complaint.title, complaint.description)
+    candidates = [
+        {"id": item.id, "reference_id": item.reference_id, "title": item.title, "description": item.description}
+        for item in db.query(Complaint).filter(Complaint.id != complaint.id).all()
+    ]
+    similar = find_similar(" ".join((complaint.title, complaint.description)), candidates=candidates)
+    return {"analysis": analysis, "similar_complaints": similar}

@@ -1,6 +1,6 @@
 import { Check, Clock, X } from 'lucide-react'
 
-export default function StatusTimeline({ status = 'Submitted', createdAt }) {
+export default function StatusTimeline({ status = 'Submitted', createdAt, statusHistory = [] }) {
   const normStatus = (status || 'Submitted').trim()
   const isRejected = normStatus === 'Rejected'
 
@@ -88,6 +88,28 @@ export default function StatusTimeline({ status = 'Submitted', createdAt }) {
             )
           })}
         </div>
+
+        {/* Status history */}
+        {statusHistory.length > 0 && (
+          <div className="mt-6">
+            <h3 className="text-sm font-semibold text-slate-700 mb-2">Status History</h3>
+            <div className="space-y-2">
+              {statusHistory.map((entry) => (
+                <div key={entry.id} className="rounded-lg border border-slate-200 bg-white p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-bold text-slate-700">{entry.status}</span>
+                    <span className="text-[10px] font-mono text-slate-400">
+                      {new Date(entry.changed_at).toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                  {entry.remarks && (
+                    <p className="mt-1 text-xs text-slate-600 whitespace-pre-wrap">{entry.remarks}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

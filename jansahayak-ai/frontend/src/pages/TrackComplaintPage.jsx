@@ -216,7 +216,7 @@ export default function TrackComplaintPage() {
               <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">
                 Resolution Lifecycle
               </p>
-              <StatusTimeline status={complaint.status} createdAt={complaint.created_at} />
+              <StatusTimeline status={complaint.status} createdAt={complaint.created_at} statusHistory={complaint.status_history || []} />
             </div>
 
             {/* Metadata Grid */}

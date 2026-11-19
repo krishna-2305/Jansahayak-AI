@@ -37,9 +37,10 @@ export const complaintService = {
    * @param {number} complaintId
    * @param {string} status - e.g. "Under Review", "In Progress", "Resolved", "Closed", "Rejected"
    */
-  async updateComplaintStatus(complaintId, status) {
+  async updateComplaintStatus(complaintId, status, remarks = null) {
     const response = await api.patch(`/api/complaints/${complaintId}/status`, {
       status,
+      remarks,
     })
     return response.data
   },

@@ -39,7 +39,8 @@ export default function StatusUpdateModal({
     try {
       const updated = await complaintService.updateComplaintStatus(
         complaint.id,
-        selectedStatus
+        selectedStatus,
+        remarks.trim() || null
       )
       if (onStatusUpdated) {
         onStatusUpdated(updated)

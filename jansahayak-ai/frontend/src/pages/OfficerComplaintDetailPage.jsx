@@ -259,7 +259,7 @@ export default function OfficerComplaintDetailPage() {
               <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
                 Lifecycle Progression
               </p>
-              <StatusTimeline status={complaint.status} createdAt={complaint.created_at} />
+              <StatusTimeline status={complaint.status} createdAt={complaint.created_at} statusHistory={complaint.status_history || []} />
             </div>
 
             {/* Core Info Grid */}

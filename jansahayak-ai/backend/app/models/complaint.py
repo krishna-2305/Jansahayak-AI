@@ -23,5 +23,10 @@ class Complaint(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     department = relationship("Department", back_populates="complaints")
-    status_history = relationship("StatusHistory", back_populates="complaint", cascade="all, delete-orphan")
+    status_history = relationship(
+        "StatusHistory",
+        back_populates="complaint",
+        cascade="all, delete-orphan",
+        order_by="StatusHistory.changed_at.asc(), StatusHistory.id.asc()",
+    )
     incidents = relationship("Incident", back_populates="complaint", cascade="all, delete-orphan")
