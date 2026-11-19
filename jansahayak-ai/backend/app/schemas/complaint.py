@@ -55,6 +55,22 @@ class ComplaintUpdate(BaseModel):
         return normalized or None
 
 
+class AIAssessmentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    predicted_category: str = Field(min_length=1, max_length=50)
+    summary: str = Field(min_length=1, max_length=5000)
+    language: str = Field(max_length=20)
+    issue_entities: list[str] = Field(default_factory=list)
+    urgency_indicators: list[str] = Field(default_factory=list)
+    evidence: list[str] = Field(default_factory=list)
+    explanation: str = Field(min_length=1, max_length=5000)
+    model_or_method: str = Field(max_length=100)
+    confidence: float = Field(ge=0.0, le=1.0)
+    analyzed_at: datetime
+
+
 class StatusHistoryResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -80,3 +96,4 @@ class ComplaintResponse(BaseModel):
     status: str
     created_at: datetime
     status_history: list[StatusHistoryResponse] = Field(default_factory=list)
+    ai_assessment: AIAssessmentResponse | None = None

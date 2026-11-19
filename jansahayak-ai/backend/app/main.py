@@ -9,7 +9,7 @@ from app.database import Base, engine
 load_dotenv()
 
 # Register model metadata before creating tables.
-from app.models import complaint, department, incident, status_history  # noqa: F401, E402
+from app.models import ai_assessment, complaint, department, incident, status_history  # noqa: F401, E402
 
 Base.metadata.create_all(bind=engine)
 

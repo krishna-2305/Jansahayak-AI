@@ -110,8 +110,8 @@ def test_ai_analysis_is_explainable_and_preserves_text():
     response = client.get(f"/api/complaints/{complaint['reference_id']}/ai-analysis")
     assert response.status_code == 200
     analysis = response.json()["analysis"]
-    assert analysis["recommended_category"] == "School & Education Facilities"
-    assert analysis["recommended_department"] == "Education"
+    assert analysis["recommended_category"] == "Electricity"
+    assert analysis["recommended_department"] == "Electricity Department"
     assert analysis["recommended_priority"] == "Critical"
     assert analysis["category_evidence"]
     assert analysis["priority_rationale"]
@@ -251,3 +251,98 @@ def test_dashboard_summary_includes_category_and_department_breakdowns():
     assert "by_department" in summary
     assert summary["by_category"].get("Road Maintenance", 0) >= 1
     assert summary["by_department"].get(department["name"], 0) >= 1
+
+
+def test_english_complaint_understanding_is_structured_and_persisted():
+    payload = valid_complaint_payload()
+    payload.update({
+        "title": "Large pothole and live wire",
+        "description": "A large pothole is blocking the road and a live wire is hanging dangerously near the bridge.",
+        "category": "Road and Infrastructure",
+    })
+
+    created = client.post("/api/complaints", json=payload)
+    assert created.status_code == 201
+    complaint = created.json()
+
+    assert complaint["title"] == payload["title"]
+    assert complaint["description"] == payload["description"]
+    assert complaint["ai_assessment"] is not None
+    assessment = complaint["ai_assessment"]
+    assert assessment["predicted_category"] in {
+        "Water Supply", "Road and Infrastructure", "Electricity", "Sanitation",
+        "Public Health", "Education", "Transport", "Drainage", "Other",
+    }
+    assert assessment["language"] in {"English", "Hindi", "Mixed", "Unclear"}
+    assert assessment["summary"]
+    assert assessment["evidence"]
+    assert assessment["explanation"]
+    assert assessment["model_or_method"] == "rule-based-keyword-v1"
+
+
+def test_hindi_complaint_is_classified():
+    payload = valid_complaint_payload()
+    payload.update({
+        "title": "सड़क पर बड़ा गड्ढा",
+        "description": "मुख्य सड़क पर गड्ढा है और बारिश में पानी भर जाता है।",
+        "language": "Hindi",
+    })
+
+    created = client.post("/api/complaints", json=payload)
+    assert created.status_code == 201
+    assessment = created.json()["ai_assessment"]
+    assert assessment["language"] == "Hindi"
+    assert assessment["predicted_category"] in {"Road and Infrastructure", "Drainage", "Water Supply"}
+    assert assessment["issue_entities"]
+
+
+def test_mixed_language_complaint_is_detected():
+    payload = valid_complaint_payload()
+    payload.update({
+        "title": "Streetlight तार खराब",
+        "description": "The streetlight तार is not working and the area is unsafe at night.",
+        "language": "Hindi",
+    })
+
+    created = client.post("/api/complaints", json=payload)
+    assert created.status_code == 201
+    assessment = created.json()["ai_assessment"]
+    assert assessment["language"] == "Mixed"
+    assert assessment["predicted_category"] == "Electricity"
+
+
+def test_unclear_complaint_is_not_rejected_and_maps_to_other():
+    payload = valid_complaint_payload()
+    payload.update({
+        "title": "Please review this matter",
+        "description": "There is an issue at the place we discussed yesterday.",
+        "category": "Other",
+    })
+
+    created = client.post("/api/complaints", json=payload)
+    assert created.status_code == 201
+    assessment = created.json()["ai_assessment"]
+    assert assessment["predicted_category"] == "Other"
+    assert "Other" in assessment["explanation"]
+
+
+def test_ai_analysis_returns_persisted_structured_assessment():
+    payload = valid_complaint_payload()
+    payload.update({
+        "title": "Garbage pile in lane",
+        "description": "A pile of garbage is creating a smell near the school gate.",
+    })
+
+    created = client.post("/api/complaints", json=payload)
+    assert created.status_code == 201
+    complaint = created.json()
+
+    response = client.get(f"/api/complaints/{complaint['reference_id']}/ai-analysis")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["assessment"]["predicted_category"]
+    assert body["assessment"]["summary"]
+    assert body["assessment"]["language"]
+    assert body["assessment"]["issue_entities"]
+    assert body["assessment"]["evidence"]
+    assert body["assessment"]["explanation"]

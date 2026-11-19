@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.ai_assessment import AIAssessment
 from app.models.complaint import Complaint
 from app.models.department import Department
 from app.models.status_history import StatusHistory
@@ -51,6 +52,21 @@ def create_complaint(payload: ComplaintCreate, db: Session = Depends(get_db)):
         db.add(complaint)
         db.flush()
         db.add(StatusHistory(complaint_id=complaint.id, status="Submitted", remarks="Complaint registered"))
+
+        understanding = AIEngine().analyze(complaint.title, complaint.description)
+        db.add(AIAssessment(
+            complaint_id=complaint.id,
+            predicted_category=understanding["predicted_category"],
+            summary=understanding["summary"],
+            language=understanding["language"],
+            issue_entities=understanding["issue_entities"],
+            urgency_indicators=understanding["urgency_indicators"],
+            evidence=understanding["evidence"],
+            explanation=understanding["explanation"],
+            model_or_method=understanding["model_or_method"],
+            confidence=understanding["confidence"],
+        ))
+
         db.commit()
         db.refresh(complaint)
         return complaint
@@ -147,9 +163,47 @@ def get_complaint_ai_analysis(reference_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Complaint not found")
 
     analysis = AIEngine().analyze(complaint.title, complaint.description)
+
+    assessment = complaint.ai_assessment
+    if assessment is None:
+        assessment = AIAssessment(
+            complaint_id=complaint.id,
+            predicted_category=analysis["predicted_category"],
+            summary=analysis["summary"],
+            language=analysis["language"],
+            issue_entities=analysis["issue_entities"],
+            urgency_indicators=analysis["urgency_indicators"],
+            evidence=analysis["evidence"],
+            explanation=analysis["explanation"],
+            model_or_method=analysis["model_or_method"],
+            confidence=analysis["confidence"],
+        )
+        try:
+            db.add(assessment)
+            db.commit()
+            db.refresh(assessment)
+        except SQLAlchemyError as exc:
+            db.rollback()
+            raise HTTPException(status_code=500, detail="Database error while storing complaint AI assessment") from exc
+
     candidates = [
         {"id": item.id, "reference_id": item.reference_id, "title": item.title, "description": item.description}
         for item in db.query(Complaint).filter(Complaint.id != complaint.id).all()
     ]
     similar = find_similar(" ".join((complaint.title, complaint.description)), candidates=candidates)
-    return {"analysis": analysis, "similar_complaints": similar}
+    return {
+        "analysis": analysis,
+        "assessment": {
+            "predicted_category": assessment.predicted_category,
+            "summary": assessment.summary,
+            "language": assessment.language,
+            "issue_entities": assessment.issue_entities,
+            "urgency_indicators": assessment.urgency_indicators,
+            "evidence": assessment.evidence,
+            "explanation": assessment.explanation,
+            "model_or_method": assessment.model_or_method,
+            "confidence": assessment.confidence,
+            "analyzed_at": assessment.analyzed_at,
+        },
+        "similar_complaints": similar,
+    }
