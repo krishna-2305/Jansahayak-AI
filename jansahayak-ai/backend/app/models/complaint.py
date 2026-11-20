@@ -29,7 +29,7 @@ class Complaint(Base):
         cascade="all, delete-orphan",
         order_by="StatusHistory.changed_at.asc(), StatusHistory.id.asc()",
     )
-    incidents = relationship("Incident", back_populates="complaint", cascade="all, delete-orphan")
+    incident_associations = relationship("IncidentComplaint", back_populates="complaint", cascade="all, delete-orphan")
     ai_assessment = relationship(
         "AIAssessment",
         back_populates="complaint",

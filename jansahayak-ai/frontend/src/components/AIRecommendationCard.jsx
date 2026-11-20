@@ -138,6 +138,26 @@ export default function AIRecommendationCard({
         </div>
       )}
 
+      {/* Evidence and Rules */}
+      {(analysis.departmentReason || analysis.priorityReason || analysis.departmentEvidence?.length || analysis.priorityEvidence?.length) && (
+        <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="rounded-lg border border-slate-200 bg-white p-3">
+            <p className="text-xs font-bold text-slate-800">Department Rule</p>
+            {analysis.departmentReason && <p className="mt-1 text-xs text-slate-600">{analysis.departmentReason}</p>}
+            {analysis.departmentEvidence?.length > 0 && (
+              <p className="mt-1 text-[11px] text-slate-500">Evidence: {analysis.departmentEvidence.join(', ')}</p>
+            )}
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-white p-3">
+            <p className="text-xs font-bold text-slate-800">Priority Rule</p>
+            {analysis.priorityReason && <p className="mt-1 text-xs text-slate-600">{analysis.priorityReason}</p>}
+            {analysis.priorityEvidence?.length > 0 && (
+              <p className="mt-1 text-[11px] text-slate-500">Evidence: {analysis.priorityEvidence.join(', ')}</p>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Apply Button */}
       {showApplyButton && onApply && (
         <div className="mt-4 flex justify-end">

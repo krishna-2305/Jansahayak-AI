@@ -111,7 +111,7 @@ def test_ai_analysis_is_explainable_and_preserves_text():
     assert response.status_code == 200
     analysis = response.json()["analysis"]
     assert analysis["recommended_category"] == "Electricity"
-    assert analysis["recommended_department"] == "Electricity Department"
+    assert analysis["recommended_department"] == "Public Works"
     assert analysis["recommended_priority"] == "Critical"
     assert analysis["category_evidence"]
     assert analysis["priority_rationale"]
@@ -346,3 +346,105 @@ def test_ai_analysis_returns_persisted_structured_assessment():
     assert body["assessment"]["issue_entities"]
     assert body["assessment"]["evidence"]
     assert body["assessment"]["explanation"]
+
+
+def test_critical_safety_priority_has_explainable_rule_evidence():
+    payload = valid_complaint_payload()
+    payload.update({
+        "title": "Live wire hanging over school",
+        "description": "A live wire is hanging and may cause electrocution immediately.",
+    })
+
+    created = client.post("/api/complaints", json=payload)
+    assert created.status_code == 201
+    assessment = created.json()["ai_assessment"]
+    assert assessment["recommended_priority"] == "Critical"
+    assert "live wire" in assessment["priority_evidence"]
+    assert assessment["priority_rules"]
+
+
+def test_essential_service_priority_and_public_works_department():
+    payload = valid_complaint_payload()
+    payload.update({
+        "title": "No water in entire locality",
+        "description": "The water supply is shut and the whole ward has no water since today.",
+        "category": "Water Supply",
+    })
+
+    created = client.post("/api/complaints", json=payload)
+    assert created.status_code == 201
+    assessment = created.json()["ai_assessment"]
+    assert assessment["recommended_priority"] == "High"
+    assert assessment["recommended_department"] == "Public Works"
+    assert assessment["department_evidence"]
+
+
+def test_routine_complaint_receives_low_priority():
+    payload = valid_complaint_payload()
+    payload.update({
+        "title": "Suggestion for park cleaning",
+        "description": "This is a routine suggestion for future park cleaning, not urgent.",
+        "category": "Sanitation",
+    })
+
+    created = client.post("/api/complaints", json=payload)
+    assert created.status_code == 201
+    assessment = created.json()["ai_assessment"]
+    assert assessment["recommended_priority"] == "Low"
+    assert assessment["recommended_department"] == "Sanitation"
+
+
+def test_officer_triage_override_preserves_ai_recommendation():
+    payload = valid_complaint_payload()
+    payload.update({
+        "title": "Dengue patient care complaint",
+        "description": "The local hospital needs mosquito-control support for a dengue outbreak.",
+        "priority": "Medium",
+    })
+
+    created = client.post("/api/complaints", json=payload)
+    assert created.status_code == 201
+    complaint = created.json()
+
+    departments = client.get("/api/departments").json()
+    health = next((item for item in departments if item["name"] == "Health"), None)
+    if health is None:
+        health = departments[0]
+
+    override = client.patch(
+        f"/api/complaints/{complaint['id']}/triage",
+        json={
+            "department_id": health["id"],
+            "priority": "Low",
+            "reason": "Local follow-up scope is informational rather than an emergency.",
+        },
+    )
+    assert override.status_code == 200
+    result = override.json()
+    assert result["final_department_id"] == health["id"]
+    assert result["final_priority"] == "Low"
+    assert result["recommended_department"]
+    assert result["recommended_priority"]
+    assert result["human_decision_reason"]
+
+    retrieved = client.get(f"/api/complaints/{complaint['reference_id']}")
+    assert retrieved.status_code == 200
+    assert retrieved.json()["priority"] == "Low"
+    assert retrieved.json()["department_id"] == health["id"]
+    assert retrieved.json()["status"] == "Submitted"
+
+
+def test_officer_triage_requires_override_and_reason():
+    created = client.post("/api/complaints", json=valid_complaint_payload()).json()
+
+    missing_override = client.patch(
+        f"/api/complaints/{created['id']}/triage",
+        json={"reason": "Officer reviewed the complaint"},
+    )
+    assert missing_override.status_code == 422
+
+    missing_reason = client.patch(
+        f"/api/complaints/{created['id']}/triage",
+        json={"priority": "Low", "reason": "x"},
+    )
+    assert missing_reason.status_code == 422

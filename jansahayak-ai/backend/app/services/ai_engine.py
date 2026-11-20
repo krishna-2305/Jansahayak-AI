@@ -1,6 +1,7 @@
 """Explainable orchestration for local JanSahayak AI complaint understanding."""
 
 from app.services.classification_service import classify
+from app.services.department_recommendation_service import recommend_department
 from app.services.priority_service import calculate_priority
 
 
@@ -10,7 +11,7 @@ class AIEngine:
     def __init__(self):
         self.available = True
 
-    def analyze(self, title: str, description: str) -> dict:
+    def analyze(self, title: str, description: str, district: str = "", locality: str = "") -> dict:
         text = " ".join((title or "", description or "")).strip()
         classification = classify(text)
         priority = calculate_priority({"title": title, "description": description})
@@ -32,6 +33,14 @@ class AIEngine:
                 "to Other without rejecting or changing the original complaint."
             )
 
+        department_recommendation = recommend_department(
+            category=category,
+            title=title,
+            description=description,
+            district=district,
+            locality=locality,
+        )
+
         return {
             "summary": classification["summary"],
             "predicted_category": category,
@@ -43,11 +52,16 @@ class AIEngine:
             "model_or_method": "rule-based-keyword-v1",
             "confidence": classification["confidence"],
             "recommended_category": category,
-            "recommended_department": classification["department"],
+            "recommended_department": department_recommendation["recommended_department"],
+            "department_reason": department_recommendation["reason"],
+            "department_evidence": department_recommendation["supporting_evidence"],
+            "department_rule": department_recommendation["rule"],
+            "department_jurisdiction": department_recommendation["jurisdiction"],
             "category_confidence": classification["confidence"],
             "category_evidence": evidence,
             "recommended_priority": priority["priority"],
             "priority_score": priority["score"],
             "priority_rationale": priority["rationale"],
             "priority_evidence": priority["evidence"],
+            "priority_rules": priority["rules"],
         }

@@ -44,4 +44,14 @@ export const complaintService = {
     })
     return response.data
   },
+
+  /**
+   * Apply officer triage to a complaint (Officer only)
+   * @param {number} complaintId
+   * @param {Object} payload - Triage information
+   */
+  async applyOfficerTriage(complaintId, payload) {
+    const response = await api.patch(`/api/complaints/${complaintId}/triage`, payload)
+    return response.data
+  },
 }

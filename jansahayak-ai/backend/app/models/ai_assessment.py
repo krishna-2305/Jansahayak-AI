@@ -25,6 +25,20 @@ class AIAssessment(Base):
     explanation: Mapped[str] = mapped_column(Text, nullable=False)
     model_or_method: Mapped[str] = mapped_column(String(100), nullable=False)
     confidence: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    recommended_department: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    department_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    department_evidence: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    department_rule: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    recommended_priority: Mapped[str] = mapped_column(String(20), nullable=False, default="Medium")
+    priority_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    priority_evidence: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    priority_rules: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    final_department_id: Mapped[int | None] = mapped_column(
+        ForeignKey("departments.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    final_priority: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    human_decision_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     analyzed_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=lambda: datetime.now(timezone.utc),

@@ -20,6 +20,73 @@ if str(engine.url).startswith("sqlite"):
         if columns and not any(row[1] == "remarks" for row in columns):
             connection.exec_driver_sql("ALTER TABLE status_history ADD COLUMN remarks TEXT")
 
+# Lightweight SQLite compatibility for existing Phase 1/2 databases.
+if str(engine.url).startswith("sqlite"):
+    with engine.begin() as connection:
+        columns = connection.exec_driver_sql("PRAGMA table_info(status_history)").all()
+        if columns and not any(row[1] == "remarks" for row in columns):
+            connection.exec_driver_sql("ALTER TABLE status_history ADD COLUMN remarks TEXT")
+
+        assessment_columns = connection.exec_driver_sql("PRAGMA table_info(ai_assessments)").all()
+        assessment_names = {row[1] for row in assessment_columns}
+        assessment_migrations = {
+            "recommended_department": "VARCHAR(100)",
+            "department_reason": "TEXT",
+            "department_evidence": "JSON",
+            "department_rule": "VARCHAR(200)",
+            "recommended_priority": "VARCHAR(20) DEFAULT 'Medium'",
+            "priority_reason": "TEXT",
+            "priority_evidence": "JSON",
+            "priority_rules": "JSON",
+            "final_department_id": "INTEGER",
+            "final_priority": "VARCHAR(20)",
+            "human_decision_reason": "TEXT",
+        }
+        if assessment_columns:
+            for column_name, column_type in assessment_migrations.items():
+                if column_name not in assessment_names:
+                    connection.exec_driver_sql(
+                        f"ALTER TABLE ai_assessments ADD COLUMN {column_name} {column_type}"
+                    )
+
+# Lightweight SQLite compatibility for the expanded incident model.
+if str(engine.url).startswith("sqlite"):
+    with engine.begin() as connection:
+        incident_columns = connection.exec_driver_sql("PRAGMA table_info(incidents)").all()
+        incident_names = {row[1] for row in incident_columns}
+        incident_migrations = {
+            "title": "VARCHAR(200) DEFAULT 'Proposed Incident'",
+            "district": "VARCHAR(100)",
+            "locality": "VARCHAR(200)",
+        }
+        if incident_columns:
+            for column_name, column_type in incident_migrations.items():
+                if column_name not in incident_names:
+                    connection.exec_driver_sql(
+                        f"ALTER TABLE incidents ADD COLUMN {column_name} {column_type}"
+                    )
+
+            if "complaint_id" in incident_names:
+                connection.exec_driver_sql("ALTER TABLE incidents RENAME TO incidents_legacy")
+                connection.exec_driver_sql("""
+                    CREATE TABLE incidents (
+                        id INTEGER PRIMARY KEY,
+                        title VARCHAR(200) NOT NULL DEFAULT 'Proposed Incident',
+                        district VARCHAR(100),
+                        locality VARCHAR(200),
+                        department_id INTEGER REFERENCES departments(id),
+                        severity VARCHAR(20) NOT NULL DEFAULT 'Medium',
+                        notes TEXT,
+                        created_at DATETIME NOT NULL
+                    )
+                """)
+                connection.exec_driver_sql("""
+                    INSERT INTO incidents (id, title, district, locality, department_id, severity, notes, created_at)
+                    SELECT id, 'Proposed Incident', NULL, NULL, department_id, severity, notes, created_at
+                    FROM incidents_legacy
+                """)
+                connection.exec_driver_sql("DROP TABLE incidents_legacy")
+
 # Add useful starter departments; existing records are never duplicated.
 from app.database import SessionLocal  # noqa: E402
 from app.models.department import Department  # noqa: E402
@@ -57,10 +124,12 @@ app.add_middleware(
 from app.routers.complaints import router as complaints_router  # noqa: E402
 from app.routers.departments import router as departments_router  # noqa: E402
 from app.routers.dashboard import router as dashboard_router  # noqa: E402
+from app.routers.incidents import router as incidents_router  # noqa: E402
 
 app.include_router(complaints_router)
 app.include_router(departments_router)
 app.include_router(dashboard_router)
+app.include_router(incidents_router)
 
 
 @app.get("/api/health")

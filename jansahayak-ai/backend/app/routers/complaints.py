@@ -10,7 +10,7 @@ from app.models.ai_assessment import AIAssessment
 from app.models.complaint import Complaint
 from app.models.department import Department
 from app.models.status_history import StatusHistory
-from app.schemas.complaint import ComplaintCreate, ComplaintResponse, ComplaintUpdate
+from app.schemas.complaint import ComplaintCreate, ComplaintResponse, ComplaintUpdate, OfficerTriageOverride
 from app.services.ai_engine import AIEngine
 from app.services.similarity_service import find_similar
 
@@ -53,7 +53,12 @@ def create_complaint(payload: ComplaintCreate, db: Session = Depends(get_db)):
         db.flush()
         db.add(StatusHistory(complaint_id=complaint.id, status="Submitted", remarks="Complaint registered"))
 
-        understanding = AIEngine().analyze(complaint.title, complaint.description)
+        understanding = AIEngine().analyze(
+            complaint.title,
+            complaint.description,
+            district=complaint.district,
+            locality=complaint.locality,
+        )
         db.add(AIAssessment(
             complaint_id=complaint.id,
             predicted_category=understanding["predicted_category"],
@@ -65,6 +70,14 @@ def create_complaint(payload: ComplaintCreate, db: Session = Depends(get_db)):
             explanation=understanding["explanation"],
             model_or_method=understanding["model_or_method"],
             confidence=understanding["confidence"],
+            recommended_department=understanding["recommended_department"],
+            department_reason=understanding["department_reason"],
+            department_evidence=understanding["department_evidence"],
+            department_rule=understanding["department_rule"],
+            recommended_priority=understanding["recommended_priority"],
+            priority_reason=understanding["priority_rationale"],
+            priority_evidence=understanding["priority_evidence"],
+            priority_rules=understanding["priority_rules"],
         ))
 
         db.commit()
@@ -127,6 +140,39 @@ def get_complaint(reference_id: str, db: Session = Depends(get_db)):
     return complaint
 
 
+@router.get("/{complaint_id}/related")
+def get_related_complaints(complaint_id: int, db: Session = Depends(get_db)):
+    complaint = db.query(Complaint).filter(Complaint.id == complaint_id).first()
+    if complaint is None:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    candidates = [{
+        "id": item.id,
+        "reference_id": item.reference_id,
+        "title": item.title,
+        "description": item.description,
+        "district": item.district,
+        "locality": item.locality,
+        "category": item.category,
+        "created_at": item.created_at,
+    } for item in db.query(Complaint).filter(Complaint.id != complaint.id).all()]
+
+    matches = find_similar(
+        " ".join((complaint.title, complaint.description)),
+        candidates=candidates,
+        district=complaint.district,
+        locality=complaint.locality,
+        category=complaint.category,
+        submitted_at=complaint.created_at,
+    )
+    return {
+        "complaint_id": complaint.id,
+        "reference_id": complaint.reference_id,
+        "potential_matches": matches,
+        "disclaimer": "These are proposed relationships only. Officer confirmation is required; no complaints are merged.",
+    }
+
+
 @router.patch("/{complaint_id}/status", response_model=ComplaintResponse)
 def update_complaint_status(
     complaint_id: int,
@@ -162,7 +208,12 @@ def get_complaint_ai_analysis(reference_id: str, db: Session = Depends(get_db)):
     if complaint is None:
         raise HTTPException(status_code=404, detail="Complaint not found")
 
-    analysis = AIEngine().analyze(complaint.title, complaint.description)
+    analysis = AIEngine().analyze(
+        complaint.title,
+        complaint.description,
+        district=complaint.district,
+        locality=complaint.locality,
+    )
 
     assessment = complaint.ai_assessment
     if assessment is None:
@@ -177,6 +228,14 @@ def get_complaint_ai_analysis(reference_id: str, db: Session = Depends(get_db)):
             explanation=analysis["explanation"],
             model_or_method=analysis["model_or_method"],
             confidence=analysis["confidence"],
+            recommended_department=analysis["recommended_department"],
+            department_reason=analysis["department_reason"],
+            department_evidence=analysis["department_evidence"],
+            department_rule=analysis["department_rule"],
+            recommended_priority=analysis["recommended_priority"],
+            priority_reason=analysis["priority_rationale"],
+            priority_evidence=analysis["priority_evidence"],
+            priority_rules=analysis["priority_rules"],
         )
         try:
             db.add(assessment)
@@ -187,10 +246,26 @@ def get_complaint_ai_analysis(reference_id: str, db: Session = Depends(get_db)):
             raise HTTPException(status_code=500, detail="Database error while storing complaint AI assessment") from exc
 
     candidates = [
-        {"id": item.id, "reference_id": item.reference_id, "title": item.title, "description": item.description}
+        {
+            "id": item.id,
+            "reference_id": item.reference_id,
+            "title": item.title,
+            "description": item.description,
+            "district": item.district,
+            "locality": item.locality,
+            "category": item.category,
+            "created_at": item.created_at,
+        }
         for item in db.query(Complaint).filter(Complaint.id != complaint.id).all()
     ]
-    similar = find_similar(" ".join((complaint.title, complaint.description)), candidates=candidates)
+    similar = find_similar(
+        " ".join((complaint.title, complaint.description)),
+        candidates=candidates,
+        district=complaint.district,
+        locality=complaint.locality,
+        category=complaint.category,
+        submitted_at=complaint.created_at,
+    )
     return {
         "analysis": analysis,
         "assessment": {
@@ -203,7 +278,93 @@ def get_complaint_ai_analysis(reference_id: str, db: Session = Depends(get_db)):
             "explanation": assessment.explanation,
             "model_or_method": assessment.model_or_method,
             "confidence": assessment.confidence,
+            "recommended_department": assessment.recommended_department,
+            "department_reason": assessment.department_reason,
+            "department_evidence": assessment.department_evidence,
+            "department_rule": assessment.department_rule,
+            "recommended_priority": assessment.recommended_priority,
+            "priority_reason": assessment.priority_reason,
+            "priority_evidence": assessment.priority_evidence,
+            "priority_rules": assessment.priority_rules,
+            "final_department_id": assessment.final_department_id,
+            "final_priority": assessment.final_priority,
+            "human_decision_reason": assessment.human_decision_reason,
             "analyzed_at": assessment.analyzed_at,
         },
         "similar_complaints": similar,
     }
+
+
+@router.patch("/{complaint_id}/triage")
+def apply_officer_triage(
+    complaint_id: int,
+    payload: OfficerTriageOverride,
+    db: Session = Depends(get_db),
+):
+    complaint = db.query(Complaint).filter(Complaint.id == complaint_id).first()
+    if complaint is None:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    if payload.department_id is None and payload.priority is None:
+        raise HTTPException(status_code=422, detail="Provide a department override, priority override, or both")
+
+    if payload.department_id is not None:
+        department = db.query(Department).filter(Department.id == payload.department_id).first()
+        if department is None:
+            raise HTTPException(status_code=404, detail="Department not found")
+
+    assessment = complaint.ai_assessment
+    if assessment is None:
+        analysis = AIEngine().analyze(
+            complaint.title,
+            complaint.description,
+            district=complaint.district,
+            locality=complaint.locality,
+        )
+        assessment = AIAssessment(
+            complaint_id=complaint.id,
+            predicted_category=analysis["predicted_category"],
+            summary=analysis["summary"],
+            language=analysis["language"],
+            issue_entities=analysis["issue_entities"],
+            urgency_indicators=analysis["urgency_indicators"],
+            evidence=analysis["evidence"],
+            explanation=analysis["explanation"],
+            model_or_method=analysis["model_or_method"],
+            confidence=analysis["confidence"],
+            recommended_department=analysis["recommended_department"],
+            department_reason=analysis["department_reason"],
+            department_evidence=analysis["department_evidence"],
+            department_rule=analysis["department_rule"],
+            recommended_priority=analysis["recommended_priority"],
+            priority_reason=analysis["priority_rationale"],
+            priority_evidence=analysis["priority_evidence"],
+            priority_rules=analysis["priority_rules"],
+        )
+        db.add(assessment)
+
+    try:
+        normalized_reason = payload.reason.strip()
+        if payload.department_id is not None:
+            complaint.department_id = payload.department_id
+            assessment.final_department_id = payload.department_id
+        if payload.priority is not None:
+            complaint.priority = payload.priority
+            assessment.final_priority = payload.priority
+        assessment.human_decision_reason = normalized_reason
+
+        db.commit()
+        db.refresh(complaint)
+        db.refresh(assessment)
+        return {
+            "complaint_id": complaint.id,
+            "status": complaint.status,
+            "final_department_id": assessment.final_department_id,
+            "final_priority": assessment.final_priority,
+            "recommended_department": assessment.recommended_department,
+            "recommended_priority": assessment.recommended_priority,
+            "human_decision_reason": assessment.human_decision_reason,
+        }
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Database error while recording officer triage decision") from exc

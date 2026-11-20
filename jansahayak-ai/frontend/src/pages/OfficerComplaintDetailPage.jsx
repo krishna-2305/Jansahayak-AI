@@ -37,6 +37,11 @@ export default function OfficerComplaintDetailPage() {
 
   // Status update modal
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false)
+  const [triageDepartmentId, setTriageDepartmentId] = useState('')
+  const [triagePriority, setTriagePriority] = useState('')
+  const [triageReason, setTriageReason] = useState('')
+  const [triageSaving, setTriageSaving] = useState(false)
+  const [triageError, setTriageError] = useState(null)
 
   useEffect(() => {
     let isMounted = true
@@ -91,6 +96,29 @@ export default function OfficerComplaintDetailPage() {
     setComplaint(updated)
   }
 
+  const handleTriageSubmit = async (event) => {
+    event.preventDefault()
+    setTriageSaving(true)
+    setTriageError(null)
+
+    try {
+      await complaintService.applyOfficerTriage(complaint.id, {
+        department_id: triageDepartmentId ? Number(triageDepartmentId) : null,
+        priority: triagePriority || null,
+        reason: triageReason,
+      })
+      const refreshed = await complaintService.getComplaintByRef(referenceId)
+      setComplaint(refreshed)
+      setTriageDepartmentId('')
+      setTriagePriority('')
+      setTriageReason('')
+    } catch (err) {
+      setTriageError(getErrorMessage(err))
+    } finally {
+      setTriageSaving(false)
+    }
+  }
+
   const copyRefId = () => {
     if (!complaint?.reference_id) return
     navigator.clipboard.writeText(complaint.reference_id)
@@ -99,9 +127,25 @@ export default function OfficerComplaintDetailPage() {
   }
 
   // AI Analysis of this complaint
-  const aiAnalysis = complaint
+  const browserAiAnalysis = complaint
     ? analyzeGrievanceText(complaint.title, complaint.description, departments)
     : null
+
+  const backendAssessment = complaint?.ai_assessment || null
+  const aiAnalysis = backendAssessment
+    ? {
+        ...browserAiAnalysis,
+        recommendedDepartmentName: backendAssessment.recommended_department || browserAiAnalysis?.recommendedDepartmentName,
+        confidence: Math.round((backendAssessment.confidence || 0) * 100),
+        suggestedPriority: backendAssessment.final_priority || backendAssessment.recommended_priority,
+        suggestedCategory: backendAssessment.predicted_category,
+        rationale: backendAssessment.explanation,
+        departmentReason: backendAssessment.department_reason,
+        departmentEvidence: backendAssessment.department_evidence || [],
+        priorityReason: backendAssessment.priority_reason,
+        priorityEvidence: backendAssessment.priority_evidence || [],
+      }
+    : browserAiAnalysis
 
   // Related Complaints
   const relatedComplaints = complaint
@@ -311,6 +355,76 @@ export default function OfficerComplaintDetailPage() {
               <span className="font-mono">Record ID: #{complaint.id}</span>
             </div>
           </div>
+
+          {/* Officer Triage Override Form */}
+          <form onSubmit={handleTriageSubmit} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs space-y-3">
+            <div>
+              <h4 className="text-sm font-bold text-slate-900">Officer Triage Override</h4>
+              <p className="text-[11px] text-slate-500 mt-1">
+                AI recommendation is preserved; only the final officer decision changes.
+              </p>
+            </div>
+
+            {triageError && <ErrorBanner message={triageError} />}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-3">
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Final Department</label>
+                <select
+                  value={triageDepartmentId}
+                  onChange={(event) => setTriageDepartmentId(event.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 bg-white"
+                >
+                  <option value="">Keep current assignment</option>
+                  {departments.map((department) => (
+                    <option key={department.id} value={department.id}>{department.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Final Priority</label>
+                <select
+                  value={triagePriority}
+                  onChange={(event) => setTriagePriority(event.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 bg-white"
+                >
+                  <option value="">Keep current priority</option>
+                  <option value="Critical">Critical</option>
+                  <option value="High">High</option>
+                  <option value="Medium">Medium</option>
+                  <option value="Low">Low</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Override Reason</label>
+              <textarea
+                value={triageReason}
+                onChange={(event) => setTriageReason(event.target.value)}
+                rows={3}
+                minLength={3}
+                required
+                placeholder="Explain the final officer decision"
+                className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 bg-white resize-none"
+              />
+            </div>
+
+            {complaint.ai_assessment?.human_decision_reason && (
+              <p className="text-[11px] text-slate-600 border-t border-slate-100 pt-2">
+                <strong>Recorded decision:</strong> {complaint.ai_assessment.human_decision_reason}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              disabled={triageSaving || (!triageDepartmentId && !triagePriority)}
+              className="w-full px-4 py-2 rounded-lg text-xs font-bold text-white bg-blue-800 hover:bg-blue-900 disabled:opacity-50"
+            >
+              {triageSaving ? 'Saving officer decision...' : 'Record Final Triage Decision'}
+            </button>
+          </form>
         </div>
 
         {/* Right Column: AI Analysis & Related Incident Clusters */}

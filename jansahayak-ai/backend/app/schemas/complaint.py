@@ -55,6 +55,22 @@ class ComplaintUpdate(BaseModel):
         return normalized or None
 
 
+class OfficerTriageOverride(BaseModel):
+    department_id: int | None = Field(default=None, gt=0)
+    priority: str | None = Field(default=None, max_length=20)
+    reason: str = Field(min_length=3, max_length=2000)
+
+    @field_validator("priority")
+    @classmethod
+    def validate_priority(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().title()
+        if normalized not in ALLOWED_PRIORITIES:
+            raise ValueError(f"Invalid priority. Allowed priorities: {', '.join(sorted(ALLOWED_PRIORITIES))}")
+        return normalized
+
+
 class AIAssessmentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -68,6 +84,17 @@ class AIAssessmentResponse(BaseModel):
     explanation: str = Field(min_length=1, max_length=5000)
     model_or_method: str = Field(max_length=100)
     confidence: float = Field(ge=0.0, le=1.0)
+    recommended_department: str | None = None
+    department_reason: str | None = None
+    department_evidence: list[str] = Field(default_factory=list)
+    department_rule: str | None = None
+    recommended_priority: str = "Medium"
+    priority_reason: str | None = None
+    priority_evidence: list[str] = Field(default_factory=list)
+    priority_rules: list[str] = Field(default_factory=list)
+    final_department_id: int | None = None
+    final_priority: str | None = None
+    human_decision_reason: str | None = None
     analyzed_at: datetime
 
 
