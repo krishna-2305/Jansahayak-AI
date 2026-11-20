@@ -165,10 +165,25 @@ def get_related_complaints(complaint_id: int, db: Session = Depends(get_db)):
         category=complaint.category,
         submitted_at=complaint.created_at,
     )
+    candidate_lookup = {item.id: item for item in db.query(Complaint).filter(Complaint.id != complaint.id).all()}
+    enriched_matches = []
+    for match in matches:
+        candidate = candidate_lookup.get(match["complaint_id"])
+        if candidate:
+            enriched_matches.append({
+                **match,
+                "title": candidate.title,
+                "description": candidate.description,
+                "category": candidate.category,
+                "district": candidate.district,
+                "locality": candidate.locality,
+                "priority": candidate.priority,
+                "status": candidate.status,
+            })
     return {
         "complaint_id": complaint.id,
         "reference_id": complaint.reference_id,
-        "potential_matches": matches,
+        "potential_matches": enriched_matches,
         "disclaimer": "These are proposed relationships only. Officer confirmation is required; no complaints are merged.",
     }
 
@@ -368,3 +383,22 @@ def apply_officer_triage(
     except SQLAlchemyError as exc:
         db.rollback()
         raise HTTPException(status_code=500, detail="Database error while recording officer triage decision") from exc
+
+
+@router.post("/analyze")
+def analyze_complaint_preview(payload: ComplaintCreate):
+    analysis = AIEngine().analyze(payload.title, payload.description, district=payload.district, locality=payload.locality)
+    return {
+        "analysis": analysis,
+        "recommendedDepartmentName": analysis["recommended_department"] or "General Administration",
+        "confidence": round(float(analysis["confidence"] or 0) * 100),
+        "suggestedPriority": analysis["recommended_priority"],
+        "suggestedCategory": analysis["recommended_category"],
+        "detectedHazards": [],
+        "rationale": analysis["explanation"],
+        "departmentReason": analysis["department_reason"],
+        "departmentEvidence": analysis["department_evidence"],
+        "priorityReason": analysis["priority_rationale"],
+        "priorityEvidence": analysis["priority_evidence"],
+        "evidence": analysis["evidence"],
+    }

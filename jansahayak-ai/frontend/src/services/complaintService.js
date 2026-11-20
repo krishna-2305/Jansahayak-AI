@@ -54,4 +54,31 @@ export const complaintService = {
     const response = await api.patch(`/api/complaints/${complaintId}/triage`, payload)
     return response.data
   },
+
+  /**
+   * Analyze complaint using AI
+   * @param {Object} payload - Analysis parameters
+   */
+  async analyzeComplaint(payload) {
+    const response = await api.post('/api/complaints/analyze', payload)
+    return response.data
+  },
+
+  /**
+   * Fetch complaints related to a specific complaint (for AI suggestions)
+   * @param {number} complaintId
+   */
+  async getRelatedComplaints(complaintId) {
+    const response = await api.get(`/api/complaints/${complaintId}/related`)
+    return response.data
+  },
+
+  /**
+   * Retrieve AI analysis for a complaint
+   * @param {string} referenceId
+   */
+  async getComplaintAIAnalysis(referenceId) {
+    const response = await api.get(`/api/complaints/${referenceId}/ai-analysis`)
+    return response.data
+  },
 }

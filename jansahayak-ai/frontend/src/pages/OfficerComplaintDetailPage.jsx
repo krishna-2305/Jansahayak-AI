@@ -11,11 +11,7 @@ import {
 } from 'lucide-react'
 import { complaintService } from '../services/complaintService'
 import { departmentService } from '../services/departmentService'
-import {
-  analyzeGrievanceText,
-  findRelatedComplaints,
-  detectIncidentClusters,
-} from '../services/aiIntelligence'
+import { incidentService } from '../services/incidentService'
 import { getErrorMessage } from '../services/api'
 import StatusBadge from '../components/StatusBadge'
 import PriorityBadge from '../components/PriorityBadge'
@@ -29,7 +25,9 @@ export default function OfficerComplaintDetailPage() {
   const { referenceId } = useParams()
 
   const [complaint, setComplaint] = useState(null)
-  const [allComplaints, setAllComplaints] = useState([])
+  const [relatedResponse, setRelatedResponse] = useState(null)
+  const [backendAnalysis, setBackendAnalysis] = useState(null)
+  const [incidents, setIncidents] = useState([])
   const [departments, setDepartments] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -49,15 +47,26 @@ export default function OfficerComplaintDetailPage() {
     if (referenceId) {
       Promise.all([
         complaintService.getComplaintByRef(referenceId),
-        complaintService.listComplaints(0, 200).catch(() => []),
         departmentService.getDepartments().catch(() => []),
+        incidentService.listIncidents().catch(() => []),
       ])
-        .then(([compRes, allRes, deptsRes]) => {
+        .then(async ([compRes, deptsRes, incidentRes]) => {
           if (isMounted) {
             setComplaint(compRes)
-            setAllComplaints(allRes)
             setDepartments(deptsRes)
-            setLoading(false)
+            setIncidents(incidentRes)
+            try {
+              const [analysisRes, relatedRes] = await Promise.all([
+                complaintService.getComplaintAIAnalysis(compRes.reference_id).catch(() => null),
+                complaintService.getRelatedComplaints(compRes.id).catch(() => null),
+              ])
+              if (isMounted) {
+                setBackendAnalysis(analysisRes)
+                setRelatedResponse(relatedRes)
+              }
+            } finally {
+              if (isMounted) setLoading(false)
+            }
           }
         })
         .catch((err) => {
@@ -77,14 +86,16 @@ export default function OfficerComplaintDetailPage() {
     setLoading(true)
     setError(null)
     try {
-      const [compRes, allRes, deptsRes] = await Promise.all([
+      const [compRes, deptsRes, incidentRes] = await Promise.all([
         complaintService.getComplaintByRef(referenceId),
-        complaintService.listComplaints(0, 200).catch(() => []),
         departmentService.getDepartments().catch(() => []),
+        incidentService.listIncidents().catch(() => []),
       ])
       setComplaint(compRes)
-      setAllComplaints(allRes)
       setDepartments(deptsRes)
+      setIncidents(incidentRes)
+      setBackendAnalysis(await complaintService.getComplaintAIAnalysis(compRes.reference_id).catch(() => null))
+      setRelatedResponse(await complaintService.getRelatedComplaints(compRes.id).catch(() => null))
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {
@@ -126,37 +137,28 @@ export default function OfficerComplaintDetailPage() {
     setTimeout(() => setCopied(false), 3000)
   }
 
-  // AI Analysis of this complaint
-  const browserAiAnalysis = complaint
-    ? analyzeGrievanceText(complaint.title, complaint.description, departments)
-    : null
-
-  const backendAssessment = complaint?.ai_assessment || null
+  const backendAssessment = backendAnalysis?.assessment || complaint?.ai_assessment || null
   const aiAnalysis = backendAssessment
     ? {
-        ...browserAiAnalysis,
-        recommendedDepartmentName: backendAssessment.recommended_department || browserAiAnalysis?.recommendedDepartmentName,
+        recommendedDepartmentName: backendAssessment.recommended_department || 'General Administration',
         confidence: Math.round((backendAssessment.confidence || 0) * 100),
         suggestedPriority: backendAssessment.final_priority || backendAssessment.recommended_priority,
         suggestedCategory: backendAssessment.predicted_category,
+        detectedHazards: [],
         rationale: backendAssessment.explanation,
         departmentReason: backendAssessment.department_reason,
         departmentEvidence: backendAssessment.department_evidence || [],
         priorityReason: backendAssessment.priority_reason,
         priorityEvidence: backendAssessment.priority_evidence || [],
+        evidence: backendAssessment.evidence || [],
       }
-    : browserAiAnalysis
+    : null
 
-  // Related Complaints
-  const relatedComplaints = complaint
-    ? findRelatedComplaints(complaint, allComplaints)
-    : []
-
-  // Check if part of an incident cluster
-  const clusters = detectIncidentClusters(allComplaints, departments)
+  const relatedComplaints = relatedResponse?.potential_matches || []
   const matchingCluster = complaint
-    ? clusters.find((cl) =>
-        cl.locality.toLowerCase().trim() === complaint.locality.toLowerCase().trim()
+    ? incidents.find((incident) =>
+        incident.locality?.toLowerCase().trim() === complaint.locality.toLowerCase().trim()
+        || incident.complaints?.some((item) => item.complaint_id === complaint.id)
       )
     : null
 

@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { complaintService } from '../services/complaintService'
 import { departmentService } from '../services/departmentService'
-import { detectIncidentClusters } from '../services/aiIntelligence'
+import { incidentService } from '../services/incidentService'
 import { getErrorMessage } from '../services/api'
 import IncidentClusterCard from '../components/IncidentClusterCard'
 import LoadingSpinner from '../components/LoadingSpinner'
@@ -17,6 +17,7 @@ import ErrorBanner from '../components/ErrorBanner'
 export default function OfficerIncidentsPage() {
   const [complaints, setComplaints] = useState([])
   const [departments, setDepartments] = useState([])
+  const [backendIncidents, setBackendIncidents] = useState([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState(null)
@@ -27,11 +28,13 @@ export default function OfficerIncidentsPage() {
     Promise.all([
       complaintService.listComplaints(0, 300),
       departmentService.getDepartments(),
+      incidentService.listIncidents().catch(() => []),
     ])
-      .then(([compRes, deptsRes]) => {
+      .then(([compRes, deptsRes, incidentsRes]) => {
         if (isMounted) {
           setComplaints(compRes)
           setDepartments(deptsRes)
+          setBackendIncidents(incidentsRes)
           setLoading(false)
         }
       })
@@ -52,12 +55,14 @@ export default function OfficerIncidentsPage() {
     setError(null)
 
     try {
-      const [compRes, deptsRes] = await Promise.all([
+      const [compRes, deptsRes, incidentsRes] = await Promise.all([
         complaintService.listComplaints(0, 300),
         departmentService.getDepartments(),
+        incidentService.listIncidents().catch(() => []),
       ])
       setComplaints(compRes)
       setDepartments(deptsRes)
+      setBackendIncidents(incidentsRes)
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {
@@ -65,7 +70,24 @@ export default function OfficerIncidentsPage() {
     }
   }
 
-  const clusters = detectIncidentClusters(complaints, departments)
+  const clusters = backendIncidents.map((incident) => ({
+    id: `INC-${incident.id}`,
+    title: incident.title,
+    locality: incident.locality || 'Not specified',
+    district: incident.district || 'Not specified',
+    departmentName: departments.find((item) => item.id === incident.department_id)?.name || 'Unassigned',
+    complaintCount: incident.complaints?.length || 0,
+    complaints: (incident.complaints || []).map((item) => ({
+      id: item.complaint_id,
+      reference_id: item.reference_id,
+      title: `Complaint ${item.reference_id}`,
+      description: item.matching_signals?.officer_decision_reason || 'Officer-managed incident relationship',
+      priority: 'Medium',
+      status: 'Submitted',
+    })),
+    severity: incident.severity,
+    summary: incident.notes || 'Officer-created incident. Individual complaint relationships require review.',
+  }))
 
   const criticalClustersCount = clusters.filter((c) => c.severity === 'Critical').length
   const totalImpactedCitizens = clusters.reduce((acc, c) => acc + c.complaintCount, 0)

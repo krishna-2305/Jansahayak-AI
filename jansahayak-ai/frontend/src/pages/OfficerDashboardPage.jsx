@@ -25,7 +25,6 @@ import {
 import { dashboardService } from '../services/dashboardService'
 import { complaintService } from '../services/complaintService'
 import { departmentService } from '../services/departmentService'
-import { detectIncidentClusters } from '../services/aiIntelligence'
 import { getErrorMessage } from '../services/api'
 import StatCard from '../components/StatCard'
 import StatusBadge from '../components/StatusBadge'
@@ -55,6 +54,7 @@ export default function OfficerDashboardPage() {
   const [summary, setSummary] = useState(null)
   const [complaints, setComplaints] = useState([])
   const [departments, setDepartments] = useState([])
+  const [recurringIssues, setRecurringIssues] = useState([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState(null)
@@ -69,12 +69,14 @@ export default function OfficerDashboardPage() {
       dashboardService.getSummary(),
       complaintService.listComplaints(0, 100),
       departmentService.getDepartments(),
+      dashboardService.getRecurringIssues({ days: 30, minimum_complaints: 2 }).catch(() => ({ recurring_issues: [] })),
     ])
-      .then(([summaryRes, complaintsRes, deptsRes]) => {
+      .then(([summaryRes, complaintsRes, deptsRes, recurringRes]) => {
         if (isMounted) {
           setSummary(summaryRes)
           setComplaints(complaintsRes)
           setDepartments(deptsRes)
+          setRecurringIssues(recurringRes.recurring_issues || [])
           setLoading(false)
         }
       })
@@ -95,15 +97,17 @@ export default function OfficerDashboardPage() {
     setError(null)
 
     try {
-      const [summaryRes, complaintsRes, deptsRes] = await Promise.all([
+      const [summaryRes, complaintsRes, deptsRes, recurringRes] = await Promise.all([
         dashboardService.getSummary(),
         complaintService.listComplaints(0, 100),
         departmentService.getDepartments(),
+      dashboardService.getRecurringIssues({ days: 30, minimum_complaints: 2 }).catch(() => ({ recurring_issues: [] })),
       ])
 
       setSummary(summaryRes)
       setComplaints(complaintsRes)
       setDepartments(deptsRes)
+      setRecurringIssues(recurringRes.recurring_issues || [])
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {
@@ -120,8 +124,10 @@ export default function OfficerDashboardPage() {
     dashboardService.getSummary().then(setSummary).catch(() => {})
   }
 
-  // Calculate incident clusters
-  const incidentClusters = detectIncidentClusters(complaints, departments)
+  const incidentClusters = recurringIssues.map((item) => ({
+    title: `${item.category} recurring pattern in ${item.locality}`,
+    complaintCount: item.total_complaints,
+  }))
 
   // Prepare chart data
   const statusChartData = summary?.by_status

@@ -16,4 +16,12 @@ export const dashboardService = {
     const response = await api.get('/api/health')
     return response.data
   },
+
+  /**
+   * Get recurring issues
+   */
+  async getRecurringIssues(params = {}) {
+    const response = await api.get('/api/dashboard/recurring-issues', { params })
+    return response.data
+  },
 }

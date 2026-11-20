@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import {
   FileText,
@@ -13,7 +13,6 @@ import {
 import { useLanguage } from '../context/LanguageContext'
 import { complaintService } from '../services/complaintService'
 import { departmentService } from '../services/departmentService'
-import { analyzeGrievanceText } from '../services/aiIntelligence'
 import { getErrorMessage } from '../services/api'
 import AIRecommendationCard from '../components/AIRecommendationCard'
 import ErrorBanner from '../components/ErrorBanner'
@@ -96,10 +95,38 @@ export default function RegisterComplaintPage() {
     }
   }, [])
 
-  // Real-time AI Analysis
-  const aiAnalysis = useMemo(() => {
-    return analyzeGrievanceText(formData.title, formData.description, departments)
-  }, [formData.title, formData.description, departments])
+  const [aiAnalysis, setAiAnalysis] = useState(null)
+  const [aiLoading, setAiLoading] = useState(false)
+
+  useEffect(() => {
+    const effectiveDistrict = formData.district === 'Other' ? formData.customDistrict.trim() : formData.district
+    if (formData.title.trim().length < 3 || formData.description.trim().length < 10 || !effectiveDistrict || formData.locality.trim().length < 2) {
+      setAiAnalysis(null)
+      return
+    }
+
+    let cancelled = false
+    const timer = setTimeout(async () => {
+      setAiLoading(true)
+      try {
+        const result = await complaintService.analyzeComplaint({
+          ...formData,
+          district: effectiveDistrict,
+          department_id: formData.department_id ? Number(formData.department_id) : null,
+        })
+        if (!cancelled) {
+          const department = departments.find((item) => item.name === result.recommendedDepartmentName)
+          setAiAnalysis({ ...result, recommendedDepartment: department || null })
+        }
+      } catch {
+        if (!cancelled) setAiAnalysis(null)
+      } finally {
+        if (!cancelled) setAiLoading(false)
+      }
+    }, 450)
+
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [formData.title, formData.description, formData.district, formData.customDistrict, formData.locality, formData.category, departments])
 
   const handleApplyAISuggestions = (analysis) => {
     if (!analysis) return
@@ -527,6 +554,7 @@ export default function RegisterComplaintPage() {
         {/* Right Column: AI Copilot & Guidance (5 cols) */}
         <div className="lg:col-span-5 space-y-6">
           {/* AI Intelligence Card */}
+          {aiLoading && <p className="text-xs text-slate-500 text-right">Analyzing with the backend intelligence service...</p>}
           <AIRecommendationCard
             analysis={aiAnalysis}
             onApply={handleApplyAISuggestions}
