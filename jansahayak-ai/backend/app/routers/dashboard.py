@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.complaint import Complaint
 from app.models.department import Department
+from app.services.recurring_issue_service import analyze_recurring_issues
 
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
@@ -52,3 +53,37 @@ def dashboard_summary(db: Session = Depends(get_db)):
         }
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=500, detail="Database error while generating dashboard summary") from exc
+
+
+@router.get("/recurring-issues")
+def recurring_issue_intelligence(
+    days: int = 30,
+    minimum_complaints: int = 2,
+    district: str | None = None,
+    locality: str | None = None,
+    category: str | None = None,
+    department_id: int | None = None,
+    db: Session = Depends(get_db),
+):
+    if days < 1 or days > 365:
+        raise HTTPException(status_code=422, detail="days must be between 1 and 365")
+    if minimum_complaints < 2 or minimum_complaints > 100:
+        raise HTTPException(status_code=422, detail="minimum_complaints must be between 2 and 100")
+
+    if department_id is not None:
+        department = db.query(Department).filter(Department.id == department_id).first()
+        if department is None:
+            raise HTTPException(status_code=404, detail="Department not found")
+
+    try:
+        return analyze_recurring_issues(
+            db,
+            days=days,
+            minimum_complaints=minimum_complaints,
+            district=district,
+            locality=locality,
+            category=category,
+            department_id=department_id,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Database error while generating recurring issue intelligence") from exc
