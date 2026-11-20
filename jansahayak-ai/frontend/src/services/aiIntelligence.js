@@ -3,7 +3,8 @@
 
 import { complaintService } from './complaintService'
 
-export async function analyzeGrievanceText(title = '', description = '', _departments = []) {
+export async function analyzeGrievanceText(title = '', description = '', departments = []) {
+  void departments
   if (`${title} ${description}`.trim().length < 13) return null
 
   return complaintService.analyzeComplaint({

@@ -101,7 +101,6 @@ export default function RegisterComplaintPage() {
   useEffect(() => {
     const effectiveDistrict = formData.district === 'Other' ? formData.customDistrict.trim() : formData.district
     if (formData.title.trim().length < 3 || formData.description.trim().length < 10 || !effectiveDistrict || formData.locality.trim().length < 2) {
-      setAiAnalysis(null)
       return
     }
 
@@ -110,8 +109,13 @@ export default function RegisterComplaintPage() {
       setAiLoading(true)
       try {
         const result = await complaintService.analyzeComplaint({
-          ...formData,
+          title: formData.title,
+          description: formData.description,
+          language: formData.language,
           district: effectiveDistrict,
+          locality: formData.locality,
+          category: formData.category,
+          priority: formData.priority,
           department_id: formData.department_id ? Number(formData.department_id) : null,
         })
         if (!cancelled) {
@@ -126,7 +130,7 @@ export default function RegisterComplaintPage() {
     }, 450)
 
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [formData.title, formData.description, formData.district, formData.customDistrict, formData.locality, formData.category, departments])
+  }, [formData.title, formData.description, formData.district, formData.customDistrict, formData.locality, formData.category, formData.language, formData.priority, formData.department_id, departments])
 
   const handleApplyAISuggestions = (analysis) => {
     if (!analysis) return

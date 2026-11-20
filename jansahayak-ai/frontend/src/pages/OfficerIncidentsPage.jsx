@@ -6,7 +6,6 @@ import {
   Flame,
   CheckCircle,
 } from 'lucide-react'
-import { complaintService } from '../services/complaintService'
 import { departmentService } from '../services/departmentService'
 import { incidentService } from '../services/incidentService'
 import { getErrorMessage } from '../services/api'
@@ -15,7 +14,6 @@ import LoadingSpinner from '../components/LoadingSpinner'
 import ErrorBanner from '../components/ErrorBanner'
 
 export default function OfficerIncidentsPage() {
-  const [complaints, setComplaints] = useState([])
   const [departments, setDepartments] = useState([])
   const [backendIncidents, setBackendIncidents] = useState([])
   const [loading, setLoading] = useState(true)
@@ -26,13 +24,11 @@ export default function OfficerIncidentsPage() {
     let isMounted = true
 
     Promise.all([
-      complaintService.listComplaints(0, 300),
       departmentService.getDepartments(),
       incidentService.listIncidents().catch(() => []),
     ])
-      .then(([compRes, deptsRes, incidentsRes]) => {
+      .then(([deptsRes, incidentsRes]) => {
         if (isMounted) {
-          setComplaints(compRes)
           setDepartments(deptsRes)
           setBackendIncidents(incidentsRes)
           setLoading(false)
@@ -55,12 +51,10 @@ export default function OfficerIncidentsPage() {
     setError(null)
 
     try {
-      const [compRes, deptsRes, incidentsRes] = await Promise.all([
-        complaintService.listComplaints(0, 300),
+      const [deptsRes, incidentsRes] = await Promise.all([
         departmentService.getDepartments(),
         incidentService.listIncidents().catch(() => []),
       ])
-      setComplaints(compRes)
       setDepartments(deptsRes)
       setBackendIncidents(incidentsRes)
     } catch (err) {
